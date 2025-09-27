@@ -1,0 +1,64 @@
+// Jenkinsfile
+pipeline {
+    // Define o ambiente de execução. Usaremos um container Docker com Ubuntu 24.04.
+    agent {
+        docker {
+            image 'ubuntu:24.04'
+            args '-u root' // Executa como root para instalar dependências
+        }
+    }
+
+    stages {
+        // Etapa 1: Instalação das dependências necessárias para a compilação
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    // Atualiza a lista de pacotes e instala as ferramentas do README
+                    sh 'apt-get update'
+                    sh 'apt-get install -y g++ make libgtest-dev clang-tidy clang-format'
+                }
+            }
+        }
+
+        // Etapa 2: Verificação da qualidade e formatação do código
+        stage('Code Quality Check') {
+            steps {
+                // Executa o comando 'make check' para lint e formatação
+                sh 'make check'
+            }
+        }
+
+        // Etapa 3: Compilação da aplicação principal
+        stage('Build') {
+            steps {
+                // Executa o comando 'make' para compilar o programa
+                sh 'make'
+            }
+        }
+
+        // Etapa 4: Execução dos testes unitários
+        stage('Test') {
+            steps {
+                // Executa o comando 'make unittest' para compilar e rodar os testes
+                sh 'make unittest'
+                // Aqui você poderia adicionar um passo para publicar os resultados dos testes se o gtest gerar um XML
+            }
+        }
+
+        // Etapa 5: "Deploy" (Arquivamento do Artefato)
+        stage('Archive Artifact') {
+            steps {
+                // Arquiva o binário compilado para que possa ser baixado ou usado por outras tarefas
+                // O README indica que o output fica em 'src/bin'
+                archiveArtifacts artifacts: 'src/bin/*', fingerprint: true
+            }
+        }
+    }
+
+    // Bloco opcional para ações pós-execução, como limpar o workspace
+    post {
+        always {
+            cleanWs() // Limpa o diretório de trabalho após a execução do pipeline
+        }
+    }
+}
