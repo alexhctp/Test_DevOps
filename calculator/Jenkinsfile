@@ -13,7 +13,7 @@ pipeline {
                 sh '''
                     export DEBIAN_FRONTEND=noninteractive
                     apt-get update -qq
-                    apt-get install -y -qq build-essential g++ clang-tidy clang-format make
+                    apt-get install -y -qq build-essential g++ clang-tidy clang-format make file
                     
                     # Install Google Test (optional - will continue if fails)
                     apt-get install -y -qq libgtest-dev cmake || echo "GTest installation failed, continuing..."
@@ -89,19 +89,34 @@ pipeline {
                     sh '''
                         echo "=== Build Results ==="
                         if [ -f "bin/calculator" ]; then
-                            echo "✓ Calculator binary created successfully!"
+                            echo "Calculator binary created successfully!"
                             ls -la bin/calculator
-                            file bin/calculator
+                            file bin/calculator || echo "File command not available"
+                            
+                            # Make sure it's executable
+                            chmod +x bin/calculator
+                            
+                            # Try a quick execution test (with timeout) - but don't fail if it hangs
+                            echo "Testing binary execution (with timeout)..."
+                            timeout 3s bin/calculator < /dev/null || echo "Binary test completed (interactive program detected)"
+                            
                         else
-                            echo "✗ Calculator binary not found!"
+                            echo "Calculator binary not found!"
                         fi
                         
                         echo "=== Test Results ==="
                         if [ -d "tests/bin" ] && [ "$(ls -A tests/bin 2>/dev/null)" ]; then
-                            echo "✓ Test binaries found:"
-                            ls -la tests/bin/
+                            echo "Test binaries found:"
+                            ls -la tests/bin/ || true
                         else
-                            echo "⚠ No test binaries found (tests may have failed or GTest not available)"
+                            echo "No test binaries found (tests may have failed or GTest not available)"
+                        fi
+                        
+                        echo "=== Summary ==="
+                        if [ -f "bin/calculator" ]; then
+                            echo "BUILD SUCCESS: Calculator application built successfully"
+                        else
+                            echo "BUILD FAILED: No executable generated"
                         fi
                     '''
                 }
@@ -164,4 +179,3 @@ pipeline {
         }
     }
 }
-
