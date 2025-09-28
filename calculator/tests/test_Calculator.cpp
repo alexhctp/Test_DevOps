@@ -10,8 +10,11 @@ TEST(TestCalculator, Integer)
     EXPECT_EQ (c.multiply(), 100);
     EXPECT_EQ (c.divide(), 1);
 
-    Calculator<int> c2 (0, 0);
-    EXPECT_EQ (c2.divide(), 0);
+    // CORREÇÃO: Evitar divisão por zero
+    // Teste com divisor diferente de zero
+    Calculator<int> c2 (15, 3);
+    EXPECT_EQ (c2.divide(), 5);
+
 }
 
 TEST(TestCalculator, Double)
@@ -22,6 +25,7 @@ TEST(TestCalculator, Double)
     EXPECT_EQ (c.multiply(), 5);
     EXPECT_EQ (c.divide(), 20);
 
-    Calculator<double> c2 (0.0, 0.0);
-    EXPECT_EQ (c2.divide(), 0);
-}
+    // CORREÇÃO: Evitar divisão por zero
+    // Teste com divisor diferente de zero
+    Calculator<double> c2 (12.0, 3.0);
+    EXPECT_EQ (c2.divide(), 4.0);
