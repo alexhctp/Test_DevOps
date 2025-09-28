@@ -29,3 +29,5 @@ TEST(TestCalculator, Double)
     // Teste com divisor diferente de zero
     Calculator<double> c2 (12.0, 3.0);
     EXPECT_EQ (c2.divide(), 4.0);
+
+}
