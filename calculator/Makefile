@@ -58,5 +58,5 @@ format-check:
 
 # Example of integrating format-check into a 'check' target
 # Tentativa de ajuste para corrigir o erro de deploy por falta de check
-.PHONY: check
+#.PHONY: check
 check: lint format-check
