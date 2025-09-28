@@ -1,56 +1,108 @@
-// Jenkinsfile
 pipeline {
-    // 1. Configuração do Agente
-    // Define o ambiente de execução para todo o pipeline usando o Alpine Linux ao invés do Ubuntu para manter o ambiente leve.
-    agent {
-        docker {
-            image 'alpine:3.20'
-            args '-u root'
-        }
+    agent any
+    
+    environment {
+        // Define build directory for clean workspace
+        BUILD_DIR = "${WORKSPACE}"
     }
-
-    // 2. Estágios do Pipeline
-    // Define as principais etapas do processo de CI.
+    
     stages {
-        // Estágio nstalação das dependências necessárias para compilação e análise.
+        stage('Checkout') {
+            steps {
+                echo 'Checking out source code...'
+                // Source code is automatically checked out by Jenkins
+                sh 'ls -la'
+            }
+        }
+        
         stage('Install Dependencies') {
             steps {
-                echo "Instalando compilador C++, make e ferramentas de análise..."
-                sh 'apk add --no-cache build-base clang clang-extra'
+                echo 'Installing required dependencies...'
+                sh '''
+                    # Install build essentials and required packages
+                    sudo apt-get update
+                    sudo apt-get install -y build-essential g++ clang-tidy clang-format
+                    
+                    # Install Google Test library
+                    sudo apt-get install -y libgtest-dev cmake
+                    
+                    # Verify installations
+                    g++ --version
+                    clang-tidy --version
+                    clang-format --version
+                '''
             }
         }
-
-        // Estágio para compilar a aplicação principal.
+        
+        stage('Code Quality Check') {
+            parallel {
+                stage('Lint') {
+                    steps {
+                        echo 'Running code linting...'
+                        sh 'make lint'
+                    }
+                }
+                
+                stage('Format Check') {
+                    steps {
+                        echo 'Checking code formatting...'
+                        sh 'make format-check'
+                    }
+                }
+            }
+        }
+        
         stage('Build') {
             steps {
-                echo "Compilando a aplicação..."
-                sh 'make' 
+                echo 'Building the calculator application...'
+                sh 'make clean'
+                sh 'make'
             }
         }
-
-        // Estágio para executar as verificações de qualidade de código.
-        stage('Code Quality Check') {
+        
+        stage('Unit Tests') {
             steps {
-                echo "Executando análise estática e verificação de formato..."
-                sh 'make check' 
+                echo 'Running unit tests...'
+                sh 'make unittest'
+            }
+            post {
+                always {
+                    // Archive test results if they exist
+                    script {
+                        if (fileExists('tests/bin/*')) {
+                            echo 'Test binaries found'
+                        }
+                    }
+                }
             }
         }
-
-        // Estágio para compilar e rodar os testes unitários.
-        stage('Unit Test') {
+        
+        stage('Archive Artifacts') {
             steps {
-                echo "Executando os testes unitários..."
-                sh 'make unittest' 
+                echo 'Archiving build artifacts...'
+                archiveArtifacts artifacts: 'bin/calculator', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'tests/bin/**', allowEmptyArchive: true
             }
         }
     }
-
-    // 3. Ações Pós-execução
-    // Define ações que serão executadas no final do pipeline, independentemente do resultado.
+    
     post {
         always {
-            echo "Limpando o workspace..."
+            echo 'Pipeline execution completed'
+            // Clean workspace
             sh 'make clean'
+        }
+        
+        success {
+            echo 'Pipeline executed successfully!'
+        }
+        
+        failure {
+            echo 'Pipeline failed. Check the logs for details.'
+        }
+        
+        unstable {
+            echo 'Pipeline completed but with some issues.'
         }
     }
 }
