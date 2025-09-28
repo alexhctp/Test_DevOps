@@ -4,7 +4,7 @@ pipeline {
     // Define o ambiente de execução para todo o pipeline usando o Alpine Linux ao invés do Ubuntu para manter o ambiente leve.
     agent {
         docker {
-            image 'alpine:latest'
+            image 'alpine:3.20'
             args '-u root'
         }
     }
