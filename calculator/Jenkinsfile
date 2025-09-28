@@ -1,64 +1,56 @@
 // Jenkinsfile
 pipeline {
-    // Define o ambiente de execução. Usaremos um container Docker com Ubuntu 24.04.
+    // 1. Configuração do Agente
+    // Define o ambiente de execução para todo o pipeline usando o Alpine Linux ao invés do Ubuntu para manter o ambiente leve.
     agent {
         docker {
-            image 'ubuntu:24.04'
-            args '-u root' // Executa como root para instalar dependências
+            image 'alpine:latest'
+            args '-u root'
         }
     }
 
+    // 2. Estágios do Pipeline
+    // Define as principais etapas do processo de CI.
     stages {
-        // Etapa 1: Instalação das dependências necessárias para a compilação
+        // Estágio nstalação das dependências necessárias para compilação e análise.
         stage('Install Dependencies') {
             steps {
-                script {
-                    // Atualiza a lista de pacotes e instala as ferramentas do README
-                    sh 'apt-get update'
-                    sh 'apt-get install -y g++ make libgtest-dev clang-tidy clang-format'
-                }
+                echo "Instalando compilador C++, make e ferramentas de análise..."
+                sh 'apk add --no-cache build-base clang clang-tools-extra'
             }
         }
 
-        // Etapa 2: Verificação da qualidade e formatação do código
-        stage('Code Quality Check') {
-            steps {
-                // Executa o comando 'make check' para lint e formatação
-                sh 'make check'
-            }
-        }
-
-        // Etapa 3: Compilação da aplicação principal
+        // Estágio para compilar a aplicação principal.
         stage('Build') {
             steps {
-                // Executa o comando 'make' para compilar o programa
-                sh 'make'
+                echo "Compilando a aplicação..."
+                sh 'make' 
             }
         }
 
-        // Etapa 4: Execução dos testes unitários
-        stage('Test') {
+        // Estágio para executar as verificações de qualidade de código.
+        stage('Code Quality Check') {
             steps {
-                // Executa o comando 'make unittest' para compilar e rodar os testes
-                sh 'make unittest'
-                // Aqui você poderia adicionar um passo para publicar os resultados dos testes se o gtest gerar um XML
+                echo "Executando análise estática e verificação de formato..."
+                sh 'make check' 
             }
         }
 
-        // Etapa 5: "Deploy" (Arquivamento do Artefato)
-        stage('Archive Artifact') {
+        // Estágio para compilar e rodar os testes unitários.
+        stage('Unit Test') {
             steps {
-                // Arquiva o binário compilado para que possa ser baixado ou usado por outras tarefas
-                // O README indica que o output fica em 'src/bin'
-                archiveArtifacts artifacts: 'src/bin/*', fingerprint: true
+                echo "Executando os testes unitários..."
+                sh 'make unittest' 
             }
         }
     }
 
-    // Bloco opcional para ações pós-execução, como limpar o workspace
+    // 3. Ações Pós-execução
+    // Define ações que serão executadas no final do pipeline, independentemente do resultado.
     post {
         always {
-            cleanWs() // Limpa o diretório de trabalho após a execução do pipeline
+            echo "Limpando o workspace..."
+            sh 'make clean'
         }
     }
 }
