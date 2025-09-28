@@ -16,7 +16,7 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 echo "Instalando compilador C++, make e ferramentas de análise..."
-                sh 'apk add --no-cache build-base clang clang-tools-extra'
+                sh 'apk add --no-cache build-base clang clang-extra'
             }
         }
 
