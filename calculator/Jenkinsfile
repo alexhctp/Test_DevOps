@@ -2,35 +2,57 @@ pipeline {
     agent any
     
     environment {
-        // Define build directory for clean workspace
-        BUILD_DIR = "${WORKSPACE}"
+        DOCKER_IMAGE = "calculator-build"
+        DOCKER_TAG = "latest"
     }
     
     stages {
         stage('Checkout') {
             steps {
                 echo 'Checking out source code...'
-                // Source code is automatically checked out by Jenkins
                 sh 'ls -la'
             }
         }
         
-        stage('Install Dependencies') {
+        stage('Build Docker Image') {
             steps {
-                echo 'Installing required dependencies...'
-                sh '''
-                    # Install build essentials and required packages
-                    sudo apt-get update
-                    sudo apt-get install -y build-essential g++ clang-tidy clang-format
-                    
-                    # Install Google Test library
-                    sudo apt-get install -y libgtest-dev cmake
-                    
-                    # Verify installations
-                    g++ --version
-                    clang-tidy --version
-                    clang-format --version
-                '''
+                echo 'Building Docker image with all dependencies...'
+                dir('calculator') {
+                    script {
+                        // Create Dockerfile if it doesn't exist
+                        writeFile file: 'Dockerfile', text: '''
+FROM ubuntu:22.04
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    g++ \
+    clang-tidy \
+    clang-format \
+    libgtest-dev \
+    cmake \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build and install Google Test
+RUN cd /usr/src/gtest && \
+    cmake . && \
+    cmake --build . && \
+    cp lib/*.a /usr/lib/ && \
+    cp -r ../googletest/include/gtest /usr/include/
+
+WORKDIR /app
+COPY . .
+
+# Default command
+CMD ["bash"]
+'''
+                        
+                        // Build Docker image
+                        def image = docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+                        env.DOCKER_IMAGE_ID = image.id
+                    }
+                }
             }
         }
         
@@ -39,40 +61,80 @@ pipeline {
                 stage('Lint') {
                     steps {
                         echo 'Running code linting...'
-                        sh 'make lint'
+                        script {
+                            docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                                sh 'make lint'
+                            }
+                        }
                     }
                 }
                 
                 stage('Format Check') {
                     steps {
                         echo 'Checking code formatting...'
-                        sh 'make format-check'
+                        script {
+                            docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                                sh 'make format-check'
+                            }
+                        }
                     }
                 }
             }
         }
         
-        stage('Build') {
+        stage('Build Application') {
             steps {
                 echo 'Building the calculator application...'
-                sh 'make clean'
-                sh 'make'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh 'make clean'
+                        sh 'make'
+                    }
+                }
             }
         }
         
         stage('Unit Tests') {
             steps {
                 echo 'Running unit tests...'
-                sh 'make unittest'
-            }
-            post {
-                always {
-                    // Archive test results if they exist
-                    script {
-                        if (fileExists('tests/bin/*')) {
-                            echo 'Test binaries found'
-                        }
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh 'make unittest'
                     }
+                }
+            }
+        }
+        
+        stage('Extract Artifacts') {
+            steps {
+                echo 'Extracting build artifacts...'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh '''
+                            # Copy artifacts to a temp directory
+                            mkdir -p /tmp/artifacts
+                            if [ -f bin/calculator ]; then
+                                cp bin/calculator /tmp/artifacts/
+                            fi
+                            if [ -d tests/bin ]; then
+                                cp -r tests/bin /tmp/artifacts/tests-bin
+                            fi
+                            ls -la /tmp/artifacts/
+                        '''
+                    }
+                    
+                    // Copy artifacts from container to Jenkins workspace
+                    sh '''
+                        # Create artifacts directory in workspace
+                        mkdir -p artifacts
+                        
+                        # Extract artifacts from Docker container
+                        CONTAINER_ID=$(docker create ${DOCKER_IMAGE}:${DOCKER_TAG})
+                        docker cp $CONTAINER_ID:/tmp/artifacts/. artifacts/ || true
+                        docker rm $CONTAINER_ID
+                        
+                        ls -la artifacts/ || echo "No artifacts found"
+                    '''
                 }
             }
         }
@@ -80,8 +142,46 @@ pipeline {
         stage('Archive Artifacts') {
             steps {
                 echo 'Archiving build artifacts...'
-                archiveArtifacts artifacts: 'bin/calculator', allowEmptyArchive: true
-                archiveArtifacts artifacts: 'tests/bin/**', allowEmptyArchive: true
+                script {
+                    // Archive artifacts if they exist
+                    if (fileExists('artifacts')) {
+                        archiveArtifacts artifacts: 'artifacts/**/*', allowEmptyArchive: true
+                    }
+                }
+            }
+        }
+        
+        stage('Create Production Image') {
+            steps {
+                echo 'Creating production Docker image...'
+                dir('calculator') {
+                    script {
+                        // Create production Dockerfile
+                        writeFile file: 'Dockerfile.prod', text: '''
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY bin/calculator /app/calculator
+
+# Make executable
+RUN chmod +x /app/calculator
+
+CMD ["./calculator"]
+'''
+                        
+                        // Build production image
+                        def prodImage = docker.build("calculator-app:${BUILD_NUMBER}", "-f Dockerfile.prod .")
+                        
+                        // Tag as latest
+                        prodImage.tag("calculator-app:latest")
+                        
+                        echo "Production image created: calculator-app:${BUILD_NUMBER}"
+                    }
+                }
             }
         }
     }
@@ -89,12 +189,21 @@ pipeline {
     post {
         always {
             echo 'Pipeline execution completed'
-            // Clean workspace
-            sh 'make clean'
+            
+            // Clean up Docker images to save space
+            script {
+                try {
+                    sh "docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true"
+                    sh "docker system prune -f || true"
+                } catch (Exception e) {
+                    echo "Failed to cleanup Docker images: ${e.getMessage()}"
+                }
+            }
         }
         
         success {
             echo 'Pipeline executed successfully!'
+            echo "Production Docker image: calculator-app:${BUILD_NUMBER}"
         }
         
         failure {
